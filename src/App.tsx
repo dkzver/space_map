@@ -217,12 +217,16 @@ function Planet({
             <div className="bg-gray-900/90 text-white px-3 py-1.5 rounded-lg text-sm whitespace-nowrap border border-yellow-500/30 shadow-lg">☀️ {planet.nameRu}</div>
           </Html>
         )}
-        {isSelected && (
-          <mesh rotation={[Math.PI / 2, 0, 0]}>
-            <ringGeometry args={[size * 1.6, size * 1.8, 64]} />
-            <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.7} />
-          </mesh>
-        )}
+        {/* Обводка для всех звёзд */}
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[size * 1.6, size * 1.7, 64]} />
+          <meshBasicMaterial 
+            color={isSelected ? "#00ffff" : "#FFA500"} 
+            side={THREE.DoubleSide} 
+            transparent 
+            opacity={isSelected ? 0.8 : 0.3} 
+          />
+        </mesh>
       </group>
     );
   }
@@ -251,12 +255,16 @@ function Planet({
           </div>
         </Html>
       )}
-      {isSelected && (
-        <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[size * 2.0, size * 2.2, 32]} />
-          <meshBasicMaterial color="#00ffff" side={THREE.DoubleSide} transparent opacity={0.7} />
-        </mesh>
-      )}
+      {/* Обводка для всех планет */}
+      <mesh rotation={[Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[size * 1.5, size * 1.6, 32]} />
+        <meshBasicMaterial 
+          color={isSelected ? "#00ffff" : planet.color} 
+          side={THREE.DoubleSide} 
+          transparent 
+          opacity={isSelected ? 0.8 : 0.25} 
+        />
+      </mesh>
     </group>
   );
 }
@@ -267,11 +275,13 @@ function Moon({
   parentPosition,
   T,
   onSelect,
+  isSelected,
 }: {
   moon: MoonData;
   parentPosition: [number, number, number];
   T: number;
   onSelect: (obj: SelectedObject) => void;
+  isSelected: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const angle = T * moon.orbitSpeed * 100;
@@ -298,6 +308,16 @@ function Moon({
       >
         <sphereGeometry args={[size, 16, 16]} />
         <meshStandardMaterial color={moon.color} roughness={0.9} />
+      </mesh>
+      {/* Обводка для всех лун */}
+      <mesh position={[x, y, z]} rotation={[Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[size * 1.8, size * 2.0, 24]} />
+        <meshBasicMaterial 
+          color={isSelected ? "#00ffff" : moon.color} 
+          side={THREE.DoubleSide} 
+          transparent 
+          opacity={isSelected ? 0.8 : 0.3} 
+        />
       </mesh>
       {hovered && (
         <Html position={[x, y + size + 0.5, z]} distanceFactor={50} style={{ pointerEvents: 'none' }}>
@@ -442,6 +462,7 @@ function SolarSystem({
           parentPosition={planetPositions[moon.parentPlanet] || [0, 0, 0]}
           T={T}
           onSelect={onSelect}
+          isSelected={selectedObject?.kind === 'moon' && selectedObject.moon.name === moon.name}
         />
       ))}
       <OrbitControls
