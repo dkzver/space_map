@@ -375,7 +375,7 @@ function CameraController({
         isAnimating.current = true;
         isFollowing.current = false;
         animProgress.current = 0;
-        setTimeout(() => { isFollowing.current = true; }, 1200);
+        setTimeout(() => { isFollowing.current = true; }, 300);
       }
     } else {
       isFollowing.current = false;
@@ -385,7 +385,7 @@ function CameraController({
 
   useFrame((_, delta) => {
     if (isAnimating.current) {
-      animProgress.current = Math.min(1, animProgress.current + delta * 1.0);
+      animProgress.current = Math.min(1, animProgress.current + delta * 4.0);
       const t = 1 - Math.pow(1 - animProgress.current, 3);
       camera.position.lerpVectors(startCamPos.current, endCamPos.current, t);
       if (controlsRef.current) {
@@ -399,12 +399,12 @@ function CameraController({
     if (isFollowing.current && target && controlsRef.current) {
       const targetVec = new THREE.Vector3(target[0], target[1], target[2]);
       const currentTarget = controlsRef.current.target as THREE.Vector3;
-      currentTarget.lerp(targetVec, 0.08);
+      currentTarget.lerp(targetVec, 0.25);
       const dist = camera.position.distanceTo(currentTarget);
       if (Math.abs(dist - viewDistanceRef.current) > 0.5) {
         const dir = new THREE.Vector3().subVectors(camera.position, currentTarget).normalize();
         const desiredPos = new THREE.Vector3().copy(currentTarget).add(dir.multiplyScalar(viewDistanceRef.current));
-        camera.position.lerp(desiredPos, 0.05);
+        camera.position.lerp(desiredPos, 0.2);
       }
       controlsRef.current.update();
     }
