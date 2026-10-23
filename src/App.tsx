@@ -337,14 +337,7 @@ function CameraController({
   controlsRef: React.RefObject<any>;
 }) {
   const { camera } = useThree();
-  const isAnimating = useRef(false);
-  const animProgress = useRef(0);
-  const startCamPos = useRef(new THREE.Vector3());
-  const startTarget = useRef(new THREE.Vector3());
-  const endCamPos = useRef(new THREE.Vector3());
-  const endTarget = useRef(new THREE.Vector3());
   const viewDistanceRef = useRef(20);
-  const isFollowing = useRef(false);
   const lastFocusedName = useRef<string | null>(null);
 
   useEffect(() => {
@@ -352,6 +345,8 @@ function CameraController({
       const objName = getSelectedName(selectedObject);
       if (lastFocusedName.current !== objName) {
         lastFocusedName.current = objName;
+        
+        // Calculate view distance based on object type
         let viewDistance: number;
         if (selectedObject.kind === 'planet') {
           const p = selectedObject.planet;
@@ -364,51 +359,24 @@ function CameraController({
           viewDistance = 5;
         }
         viewDistanceRef.current = viewDistance;
+        
+        // Instant camera positioning
         const targetVec = new THREE.Vector3(target[0], target[1], target[2]);
-        const currentTarget = controlsRef.current?.target || new THREE.Vector3();
-        const direction = new THREE.Vector3().subVectors(camera.position, currentTarget).normalize();
-        if (direction.length() < 0.001) direction.set(0.5, 0.7, 1).normalize();
-        startCamPos.current.copy(camera.position);
-        startTarget.current.copy(currentTarget);
-        endTarget.current.copy(targetVec);
-        endCamPos.current.copy(targetVec).add(direction.multiplyScalar(viewDistance));
-        isAnimating.current = true;
-        isFollowing.current = false;
-        animProgress.current = 0;
-        setTimeout(() => { isFollowing.current = true; }, 300);
+        const direction = new THREE.Vector3(0.5, 0.7, 1).normalize();
+        
+        // Set camera position
+        camera.position.copy(targetVec).add(direction.multiplyScalar(viewDistance));
+        
+        // Set orbit controls target
+        if (controlsRef.current) {
+          controlsRef.current.target.copy(targetVec);
+          controlsRef.current.update();
+        }
       }
     } else {
-      isFollowing.current = false;
       lastFocusedName.current = null;
     }
-  }, [selectedObject]);
-
-  useFrame((_, delta) => {
-    if (isAnimating.current) {
-      animProgress.current = Math.min(1, animProgress.current + delta * 4.0);
-      const t = 1 - Math.pow(1 - animProgress.current, 3);
-      camera.position.lerpVectors(startCamPos.current, endCamPos.current, t);
-      if (controlsRef.current) {
-        const newTarget = new THREE.Vector3().lerpVectors(startTarget.current, endTarget.current, t);
-        controlsRef.current.target.copy(newTarget);
-        controlsRef.current.update();
-      }
-      if (animProgress.current >= 1) isAnimating.current = false;
-      return;
-    }
-    if (isFollowing.current && target && controlsRef.current) {
-      const targetVec = new THREE.Vector3(target[0], target[1], target[2]);
-      const currentTarget = controlsRef.current.target as THREE.Vector3;
-      currentTarget.lerp(targetVec, 0.25);
-      const dist = camera.position.distanceTo(currentTarget);
-      if (Math.abs(dist - viewDistanceRef.current) > 0.5) {
-        const dir = new THREE.Vector3().subVectors(camera.position, currentTarget).normalize();
-        const desiredPos = new THREE.Vector3().copy(currentTarget).add(dir.multiplyScalar(viewDistanceRef.current));
-        camera.position.lerp(desiredPos, 0.2);
-      }
-      controlsRef.current.update();
-    }
-  });
+  }, [selectedObject, target]);
 
   return null;
 }
