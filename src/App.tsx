@@ -301,15 +301,130 @@ function OrbitPath({ planet, T }: { planet: PlanetData; T: number }) {
   );
 }
 
-// Camera controller for focusing on objects
-function CameraController({ target, enabled }: { target: [number, number, number] | null; enabled: boolean }) {
+// Camera controller for smooth focus on objects
+function CameraController({
+  target,
+  selectedObject,
+  controlsRef,
+}: {
+  target: [number, number, number] | null;
+  selectedObject: SelectedObject | null;
+  controlsRef: React.RefObject<any>;
+}) {
   const { camera } = useThree();
+  const isAnimating = useRef(false);
+  const animProgress = useRef(0);
+  const startCamPos = useRef(new THREE.Vector3());
+  const startTarget = useRef(new THREE.Vector3());
+  const endCamPos = useRef(new THREE.Vector3());
+  const endTarget = useRef(new THREE.Vector3());
+  const viewDistanceRef = useRef(20);
+  const isFollowing = useRef(false);
+
+  // Track which object we last animated to
+  const lastFocusedName = useRef<string | null>(null);
 
   useEffect(() => {
-    if (target && enabled) {
-      camera.lookAt(target[0], target[1], target[2]);
+    if (target && selectedObject) {
+      const objName = selectedObject.data.name;
+      
+      // Only trigger fly-to animation when a NEW object is selected
+      if (lastFocusedName.current !== objName) {
+        lastFocusedName.current = objName;
+
+        // Calculate desired camera distance based on object size
+        let viewDistance: number;
+        if (selectedObject.type === 'planet') {
+          const planet = selectedObject.data as PlanetData;
+          if (planet.type === 'star') {
+            viewDistance = 30;
+          } else if (planet.type === 'dwarf') {
+            viewDistance = 10;
+          } else {
+            viewDistance = Math.max(6, planet.radius * SCALE.planetScale * 10);
+          }
+        } else {
+          viewDistance = 5;
+        }
+        viewDistanceRef.current = viewDistance;
+
+        const targetVec = new THREE.Vector3(target[0], target[1], target[2]);
+
+        // Calculate camera end position: offset from target
+        const currentTarget = controlsRef.current?.target || new THREE.Vector3();
+        const direction = new THREE.Vector3()
+          .subVectors(camera.position, currentTarget)
+          .normalize();
+        
+        // If direction is zero (camera is at target), use a default direction
+        if (direction.length() < 0.001) {
+          direction.set(0.5, 0.7, 1).normalize();
+        }
+
+        // Store animation start/end
+        startCamPos.current.copy(camera.position);
+        startTarget.current.copy(currentTarget);
+        endTarget.current.copy(targetVec);
+        endCamPos.current.copy(targetVec).add(direction.multiplyScalar(viewDistance));
+
+        isAnimating.current = true;
+        isFollowing.current = false;
+        animProgress.current = 0;
+        
+        // After animation, start following the object
+        setTimeout(() => {
+          isFollowing.current = true;
+        }, 1200);
+      }
+    } else {
+      isFollowing.current = false;
+      lastFocusedName.current = null;
     }
-  }, [target, enabled, camera]);
+  }, [selectedObject]);
+
+  useFrame((_, delta) => {
+    // Phase 1: Smooth fly-to animation
+    if (isAnimating.current) {
+      animProgress.current = Math.min(1, animProgress.current + delta * 1.0);
+      // Ease-out cubic for smooth deceleration
+      const t = 1 - Math.pow(1 - animProgress.current, 3);
+
+      // Interpolate camera position
+      camera.position.lerpVectors(startCamPos.current, endCamPos.current, t);
+
+      // Interpolate orbit controls target
+      if (controlsRef.current) {
+        const newTarget = new THREE.Vector3().lerpVectors(startTarget.current, endTarget.current, t);
+        controlsRef.current.target.copy(newTarget);
+        controlsRef.current.update();
+      }
+
+      // Animation complete
+      if (animProgress.current >= 1) {
+        isAnimating.current = false;
+      }
+      return;
+    }
+
+    // Phase 2: Follow the object as it moves
+    if (isFollowing.current && target && controlsRef.current) {
+      const targetVec = new THREE.Vector3(target[0], target[1], target[2]);
+      const currentTarget = controlsRef.current.target as THREE.Vector3;
+      
+      // Smoothly follow the target
+      currentTarget.lerp(targetVec, 0.08);
+      
+      // Keep camera at the right distance from target
+      const dist = camera.position.distanceTo(currentTarget);
+      if (Math.abs(dist - viewDistanceRef.current) > 0.5) {
+        const dir = new THREE.Vector3().subVectors(camera.position, currentTarget).normalize();
+        const desiredPos = new THREE.Vector3().copy(currentTarget).add(dir.multiplyScalar(viewDistanceRef.current));
+        camera.position.lerp(desiredPos, 0.05);
+      }
+      
+      controlsRef.current.update();
+    }
+  });
 
   return null;
 }
@@ -328,6 +443,7 @@ function SolarSystem({
   selectedObject: SelectedObject | null;
   focusTarget: [number, number, number] | null;
 }) {
+  const controlsRef = useRef<any>(null);
   const T = dateToJulianCenturies(timeState.currentDate);
 
   // Calculate planet positions for moons
@@ -335,6 +451,26 @@ function SolarSystem({
   planets.forEach((p) => {
     planetPositions[p.name] = calculatePlanetPosition(p.orbitalElements, T);
   });
+
+  // Calculate live position of selected object (follows it as time progresses)
+  const liveTarget = useMemo((): [number, number, number] | null => {
+    if (!selectedObject) return null;
+    if (selectedObject.type === 'planet') {
+      const planet = selectedObject.data as PlanetData;
+      return calculatePlanetPosition(planet.orbitalElements, T);
+    } else {
+      // Moon - calculate relative to parent
+      const moon = selectedObject.data as MoonData;
+      const parentPos = planetPositions[moon.parentPlanet] || [0, 0, 0];
+      const angle = T * moon.orbitSpeed * 100;
+      const orbitR = moon.orbitRadius * SCALE.moonOrbitScale * SCALE.distanceScale;
+      return [
+        parentPos[0] + Math.cos(angle) * orbitR,
+        parentPos[1],
+        parentPos[2] + Math.sin(angle) * orbitR,
+      ];
+    }
+  }, [selectedObject, T]);
 
   return (
     <>
@@ -377,19 +513,26 @@ function SolarSystem({
         />
       ))}
 
-      {/* Camera controller */}
-      <CameraController target={focusTarget} enabled={!!focusTarget} />
-
-      {/* Camera controls */}
+      {/* Camera controls with ref */}
       <OrbitControls
+        ref={controlsRef}
         enablePan
         enableZoom
         enableRotate
-        minDistance={1}
+        minDistance={0.5}
         maxDistance={5000}
         zoomSpeed={1.5}
         rotateSpeed={0.5}
         panSpeed={1}
+        enableDamping
+        dampingFactor={0.08}
+      />
+
+      {/* Camera controller for smooth focus */}
+      <CameraController
+        target={liveTarget || focusTarget}
+        selectedObject={selectedObject}
+        controlsRef={controlsRef}
       />
     </>
   );
